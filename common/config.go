@@ -220,17 +220,24 @@ type ENConfig struct {
 		QiMai       string `yaml:"qimai"`
 		ChinaZ      string `yaml:"chinaz"`
 	}
+	AutoLogin struct {
+		Enabled bool `yaml:"enabled"` // 是否启用自动登录
+		Aiqicha struct {
+			Username string `yaml:"username"`
+			Password string `yaml:"password"`
+		} `yaml:"aiqicha"`
+	} `yaml:"auto_login"`
 	App struct {
 		MiitApi string `yaml:"miit_api"`
 	}
 }
 
 var cfgYName = filepath.Join(utils.GetConfigPath(), "config.yaml")
-var cfgYV = 0.7
-var configYaml = `version: 0.7
+var cfgYV = 0.8
+var configYaml = `version: 0.8
 user_agent: ""			# 自定义 User-Agent（可设置为获取Cookie的浏览器）
 app:
-  miit_api: ''          # HG-ha的ICP_Query (非狼组维护 https://github.com/HG-ha/ICP_Query) 
+  miit_api: ''          # HG-ha的ICP_Query (非狼组维护 https://github.com/HG-ha/ICP_Query)
 api:
   api: ':31000'    # API监听地址
   mcp: 'http://localhost:8080'    # MCP SSE监听地址
@@ -242,4 +249,9 @@ cookies:
   tyc_api_token: ''     # 天眼查   官方API Key(https://open.tianyancha.com)
   risk_bird: '' 		# 风鸟     Cookie
   qimai: ''             # 七麦数据 Cookie
+auto_login:
+  enabled: false        # 是否启用自动登录（需要chromium支持）
+  aiqicha:
+    username: ''        # 爱企查账号（手机号）
+    password: ''        # 爱企查密码
 `

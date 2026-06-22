@@ -94,10 +94,24 @@ func getENMap() map[string]*common.EnsGo {
 }
 
 func (h *AQC) req(url string) string {
+	// 尝试获取Cookie（如果启用自动登录会自动处理）
+	cookie := h.Options.GetCookie("aqc")
+
+	// 如果Cookie为空且启用了自动登录，尝试自动获取
+	if cookie == "" && h.Options.ENConfig.AutoLogin.Enabled {
+		cookieManager := common.NewCookieManager(h.Options.ENConfig)
+		newCookie, err := cookieManager.GetCookie("aqc")
+		if err != nil {
+			gologger.Error().Msgf("【AQC】获取Cookie失败: %v", err)
+		} else {
+			cookie = newCookie
+		}
+	}
+
 	c := common.NewClient(map[string]string{
 		"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36 Edg/98.0.1108.43",
 		"Accept":     "text/html, application/xhtml+xml, image/jxr, */*",
-		"Cookie":     h.Options.GetCookie("aqc"),
+		"Cookie":     cookie,
 		"Referer":    "https://aiqicha.baidu.com/",
 	}, h.Options)
 	resp, err := c.Get(url)
@@ -114,11 +128,46 @@ func (h *AQC) req(url string) string {
 			time.Sleep(10 * time.Second)
 			return h.req(url)
 		}
+
+		// 检测Cookie是否失效
+		if strings.Contains(resp.String(), "请登录") || strings.Contains(resp.String(), "未登录") {
+			gologger.Warning().Msgf("【AQC】检测到Cookie可能已失效")
+
+			// 如果启用了自动登录，尝试重新登录
+			if h.Options.ENConfig.AutoLogin.Enabled {
+				gologger.Info().Msgf("【AQC】尝试自动重新登录...")
+				cookieManager := common.NewCookieManager(h.Options.ENConfig)
+				if err := cookieManager.AutoLogin("aqc"); err != nil {
+					gologger.Error().Msgf("【AQC】自动登录失败: %v", err)
+					gologger.Error().Msgf("【AQC】请手动更新Cookie")
+				} else {
+					gologger.Info().Msgf("【AQC】自动登录成功，重试请求...")
+					time.Sleep(2 * time.Second)
+					return h.req(url)
+				}
+			} else {
+				gologger.Error().Msgf("【AQC】Cookie已失效，请重新获取或启用自动登录功能")
+			}
+		}
+
 		return resp.String()
 	} else if resp.StatusCode == 403 {
 		gologger.Error().Msgf("【AQC】ip被禁止访问网站，请更换ip\n")
 	} else if resp.StatusCode == 401 {
 		gologger.Error().Msgf("【AQC】Cookie有问题或过期，请重新获取\n")
+
+		// 如果启用了自动登录，尝试重新登录
+		if h.Options.ENConfig.AutoLogin.Enabled {
+			gologger.Info().Msgf("【AQC】尝试自动重新登录...")
+			cookieManager := common.NewCookieManager(h.Options.ENConfig)
+			if err := cookieManager.AutoLogin("aqc"); err != nil {
+				gologger.Error().Msgf("【AQC】自动登录失败: %v", err)
+			} else {
+				gologger.Info().Msgf("【AQC】自动登录成功，重试请求...")
+				time.Sleep(2 * time.Second)
+				return h.req(url)
+			}
+		}
 	} else if resp.StatusCode == 302 {
 		gologger.Error().Msgf("【AQC】需要更新Cookie\n")
 	} else if resp.StatusCode == 404 {

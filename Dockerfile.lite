@@ -1,0 +1,26 @@
+# 轻量级镜像 - 仅支持手动Cookie配置
+FROM golang:1.26-alpine AS builder
+
+WORKDIR /build
+COPY . .
+
+# 构建
+RUN go mod download && \
+    go build -o enscan .
+
+# 运行时镜像
+FROM alpine:latest
+
+# 安装必要的CA证书
+RUN apk --no-cache add ca-certificates
+
+# 复制编译好的二进制
+COPY --from=builder /build/enscan /app/enscan
+
+WORKDIR /app
+
+# 创建配置目录
+RUN mkdir -p /root/.claude
+
+ENTRYPOINT ["/app/enscan"]
+CMD ["--help"]

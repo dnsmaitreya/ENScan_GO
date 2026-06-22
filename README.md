@@ -80,9 +80,45 @@
 
 首次使用时需要使用 -v 命令生成配置文件并配置Cookie
 
-```
+```bash
 ./enscan -v
 ```
+
+#### 配置方式
+
+**方式一：手动配置Cookie（传统方式）**
+
+编辑 `~/.claude/config.yaml`，在浏览器登录后复制Cookie填入配置文件：
+
+```yaml
+cookies:
+  aiqicha: 'your_cookie_here'
+  tianyancha: ''
+  # ...
+```
+
+**方式二：自动登录（推荐）** ⭐ 新功能
+
+无需手动复制Cookie，程序自动登录并管理Cookie：
+
+```yaml
+version: 0.8
+auto_login:
+  enabled: true           # 启用自动登录
+  aiqicha:
+    username: '13800138000'  # 爱企查账号（手机号）
+    password: 'your_password'  # 爱企查密码
+cookies:
+  aiqicha: ''  # 留空，程序会自动获取
+```
+
+> 详细说明请查看 [自动登录功能文档](docs/AUTO_LOGIN.md)
+
+**特性：**
+- ✅ Cookie为空时自动登录
+- ✅ Cookie失效时自动重新登录
+- ✅ 支持Docker环境（需要Chromium）
+- ✅ 完全向后兼容
 
 ### 快速使用
 
