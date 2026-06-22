@@ -5,9 +5,9 @@
 **版本**: 0.8  
 **日期**: 2026-06-22  
 **类型**: 功能增强  
-**影响范围**: 爱企查(AQC)数据源  
+**影响范围**: 风鸟(RiskBird)数据源  
 
-本次变更为 ENScan_GO 添加了基于 chromedp 的自动登录功能，解决了用户需要手动获取和更新 Cookie 的痛点。
+本次变更为 ENScan_GO 添加了基于 chromedp 的自动登录功能，目前仅支持风鸟数据源。
 
 ---
 
@@ -28,58 +28,80 @@
 
 ## 设计方案
 
-### 架构设计
+### 为何仅支持风鸟？
+
+基于GitHub调研和实际测试，不同数据源的登录难度差异巨大：
+
+| 数据源 | 登录方式 | 验证码风险 | 实现难度 | 是否支持 |
+|--------|----------|-----------|----------|----------|
+| **风鸟** | 账号密码 | 低 | 简单 | ✅ 已实现 |
+| **爱企查** | 百度通行证 | 高（滑块/图形） | 困难 | ❌ 不支持 |
+| **天眼查** | 短信验证码 | 高 | 困难 | ❌ 不支持 |
+| **快查** | 账号密码 | 中 | 中等 | ⏳ 待实现 |
+
+**爱企查特殊限制：**
+- 使用百度通行证（passport.baidu.com）
+- 严格的反爬机制和设备指纹检测
+- 频繁触发滑块验证码
+- Cookie与IP强绑定
+- 远程Linux无人值守环境无法处理验证码
+
+**决策：** 放弃爱企查自动登录，仅实现风鸟等简单数据源。
+
+---
+
+## 架构设计
+
+### 风鸟自动登录流程
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                       ENScan_GO                              │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ┌──────────────┐         ┌──────────────────────────────┐  │
-│  │  AQC Module  │────────▶│   Cookie Manager (NEW)       │  │
-│  │              │         │                              │  │
-│  │  req()       │         │  - GetCookie()               │  │
-│  │  - 检测401   │◀────────│  - AutoLogin()               │  │
-│  │  - 触发重登录 │         │  - ValidateCookie()          │  │
-│  └──────────────┘         │  - SaveCookie()              │  │
-│                           └───────────┬──────────────────┘  │
-│                                       │                      │
-│  ┌──────────────┐                     │                      │
-│  │  ENConfig    │                     │                      │
-│  │  (Updated)   │                     ▼                      │
-│  │              │         ┌──────────────────────────────┐  │
-│  │ + AutoLogin  │         │      chromedp                 │  │
-│  │   - enabled  │         │   (Headless Chrome)           │  │
-│  │   - username │         │                              │  │
-│  │   - password │         │  - Navigate to login page    │  │
-│  └──────────────┘         │  - Fill username/password    │  │
-│                           │  - Extract cookies           │  │
-│                           └──────────────────────────────┘  │
-│                                                               │
-└─────────────────────────────────────────────────────────────┘
+用户配置账号密码
+  ↓
+程序启动 chromedp
+  ↓
+访问 riskbird.com
+  ↓
+点击登录触发弹窗
+  ↓
+切换到"密码登录"标签
+  ↓
+输入手机号和密码
+  ↓
+点击"登 录"按钮
+  ↓
+等待登录完成（5秒）
+  ↓
+提取 document.cookie
+  ↓
+保存到配置文件
 ```
 
 ### 核心组件
 
-#### 1. Cookie Manager (`common/cookie_manager.go`)
+#### 1. RiskBird Login Manager (`internal/riskbird/auto_login.go`)
 
 **职责**：
-- Cookie 生命周期管理
-- 自动登录流程编排
-- Cookie 持久化（保存到配置文件）
+- 风鸟自动登录流程
+- Cookie 提取和返回
+- 登录状态验证
 
 **关键方法**：
 ```go
-type CookieManager struct {
-    config     *ENConfig
-    configPath string
-    mu         sync.RWMutex
+type RBLoginManager struct {
+    config *common.ENConfig
 }
 
-func (cm *CookieManager) GetCookie(source string) (string, error)
-func (cm *CookieManager) AutoLogin(source string) error
-func (cm *CookieManager) loginAiqicha() error
-func (cm *CookieManager) saveCookie(source, cookie string) error
+func NewRBLoginManager(config *common.ENConfig) *RBLoginManager
+func (m *RBLoginManager) AutoLogin(username, password string) (string, error)
+```
+
+**DOM选择器（基于实际测试）**：
+```go
+loginDialog: `.el-overlay-dialog`              // 登录弹窗
+passwordTab: `.tab-item:contains("密码登录")`   // 密码登录标签
+phoneInput: `input[name="uaername"]`            // 手机号输入框
+passwordInput: `input[name="password"]`         // 密码输入框
+submitButton: `button.el-button--primary:contains("登 录")` // 登录按钮
 ```
 
 #### 2. 配置结构扩展 (`common/config.go`)
@@ -90,98 +112,58 @@ type ENConfig struct {
     // ... 原有字段
     AutoLogin struct {
         Enabled bool `yaml:"enabled"`
-        Aiqicha struct {
+        RiskBird struct {
             Username string `yaml:"username"`
             Password string `yaml:"password"`
-        } `yaml:"aiqicha"`
+        } `yaml:"riskbird"`
     } `yaml:"auto_login"`
 }
 ```
 
 **配置文件版本**：`0.7` → `0.8`
 
-#### 3. AQC 模块改造 (`internal/aiqicha/bean.go`)
-
-**变更点**：
-- `req()` 方法增加 Cookie 失效检测
-- 检测到 401/登录提示时触发自动重登录
-- 登录成功后自动重试请求
-
 ---
 
 ## 实现细节
 
-### 登录流程
+### 风鸟登录流程
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    自动登录流程                              │
-└─────────────────────────────────────────────────────────────┘
-
-1. 用户请求数据
-   │
-   ├─▶ 检查 Cookie 是否存在
-   │   │
-   │   ├─ 存在 ─▶ 使用现有 Cookie
-   │   │
-   │   └─ 不存在 ─▶ 检查是否启用自动登录
-   │                │
-   │                ├─ 未启用 ─▶ 报错提示用户手动配置
-   │                │
-   │                └─ 已启用 ─▶ 执行自动登录
-   │
-2. 自动登录执行
-   │
-   ├─▶ 启动 headless Chrome
-   │
-   ├─▶ 访问 aiqicha.baidu.com
-   │
-   ├─▶ 点击"登录"按钮
-   │
-   ├─▶ 切换到"密码登录"
-   │
-   ├─▶ 输入手机号和密码
-   │
-   ├─▶ 提交表单
-   │
-   ├─▶ 等待登录完成（5秒）
-   │
-   ├─▶ 提取 document.cookie
-   │
-   └─▶ 保存到 config.yaml
-   
-3. Cookie 失效检测
-   │
-   ├─▶ 请求返回 401
-   │   └─▶ 触发重登录
-   │
-   ├─▶ 响应包含"请登录"/"未登录"
-   │   └─▶ 触发重登录
-   │
-   └─▶ 重登录成功后重试原请求
+1. 启动 headless Chrome
+   ↓
+2. 访问 riskbird.com
+   ↓
+3. 注入反检测脚本
+   ↓
+4. 点击登录按钮（触发弹窗）
+   ↓
+5. 等待弹窗出现 (.el-overlay-dialog)
+   ↓
+6. 切换到"密码登录"标签
+   ↓
+7. 输入手机号 (input[name="uaername"])
+   ↓
+8. 输入密码 (input[name="password"])
+   ↓
+9. 点击"登 录"按钮
+   ↓
+10. 等待登录完成（5秒）
+   ↓
+11. 验证登录状态（检查弹窗是否关闭）
+   ↓
+12. 提取 document.cookie
+   ↓
+13. 返回Cookie字符串
 ```
 
-### Cookie 有效性检测
+### 反检测措施
 
-**触发条件**：
-1. HTTP 状态码 401
-2. HTTP 状态码 302（重定向到登录页）
-3. 响应内容包含关键词：`请登录`、`未登录`
-
-**处理逻辑**：
-```go
-if resp.StatusCode == 401 || 
-   strings.Contains(resp.String(), "请登录") {
-    if h.Options.ENConfig.AutoLogin.Enabled {
-        // 自动重新登录
-        cookieManager.AutoLogin("aqc")
-        // 重试请求
-        return h.req(url)
-    } else {
-        // 提示用户手动更新
-        gologger.Error().Msgf("Cookie失效，请重新获取")
-    }
-}
+```javascript
+// 注入到页面的脚本
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
+window.chrome = { runtime: {} };
 ```
 
 ---
@@ -223,11 +205,11 @@ cookies:
 version: 0.8
 auto_login:
   enabled: false  # 默认关闭，不影响现有用户
-  aiqicha:
+  riskbird:
     username: ''
     password: ''
 cookies:
-  aiqicha: 'manual_cookie'  # 仍然支持手动配置
+  risk_bird: ''  # Cookie优先，自动登录作为备用
 ```
 
 ### 功能降级
@@ -325,18 +307,21 @@ docker run -v ~/.claude:/root/.claude \
 
 ## 已知限制
 
+### ⚠️ 功能状态：实验性（不推荐生产使用）
+
+**重要说明：** 该功能目前为**实验性质**，未经过充分的实际环境测试，存在以下严重限制：
+
 ### 当前版本限制
 
-1. **仅支持爱企查**：其他数据源（天眼查、快查、风鸟）暂不支持
-2. **无验证码处理**：遇到验证码会失败
-3. **登录选择器硬编码**：网站改版可能导致失效
+1. **仅支持风鸟**：爱企查、天眼查、快查暂不支持
+2. **验证码风险**：遇到验证码会失败
+3. **需要Chromium环境**：Docker需要完整镜像
 4. **无代理支持**：自动登录不支持代理配置
 
 ### 不适用场景
 
-- 账号需要短信验证码登录
-- IP 地址频繁触发风控
-- 网络环境不稳定
+- 需要短信验证码登录的数据源
+- 频繁触发风控的环境
 - 对安全性要求极高（明文密码）
 
 ---
@@ -345,14 +330,13 @@ docker run -v ~/.claude:/root/.claude \
 
 ### 短期（v0.9）
 
-- [ ] 支持天眼查自动登录
-- [ ] 优化登录选择器（更鲁棒）
+- [ ] 支持快查自动登录
+- [ ] Cookie持久化到配置文件
 - [ ] 增加登录日志详细记录
 
 ### 中期（v1.0）
 
-- [ ] 支持快查、风鸟自动登录
-- [ ] 集成打码平台（处理验证码）
+- [ ] 研究天眼查自动登录可行性
 - [ ] Cookie 有效期智能预测
 - [ ] 支持代理配置
 
@@ -360,8 +344,7 @@ docker run -v ~/.claude:/root/.claude \
 
 - [ ] 加密存储密码
 - [ ] 多账号轮换机制
-- [ ] 登录状态监控仪表板
-- [ ] 支持二维码登录
+- [ ] 支持更多数据源
 
 ---
 

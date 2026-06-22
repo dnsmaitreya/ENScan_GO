@@ -70,12 +70,11 @@
     - 正则过滤公司
     - 支持深度查询 收集多层孙公司
     - 支持API模式提供工具联动
-    - ⭐ **爱企查自动登录** - 无需手动复制Cookie，自动管理登录状态
+    - ⭐ **风鸟自动登录** - 无需手动复制Cookie，自动管理登录状态（实验性）
 
 ## 📚 文档导航
 
 - [使用指南](#使用指南) - 快速上手
-- [自动登录功能说明](docs/AUTO_LOGIN.md) - 自动登录详细文档
 - [设计变更文档](docs/DESIGN_CHANGES.md) - 技术设计和架构说明
 
 ## 使用指南
@@ -92,7 +91,7 @@
 
 #### 配置方式
 
-**方式一：手动配置Cookie（传统方式）**
+**方式一：手动配置Cookie（推荐）**
 
 编辑 `~/.claude/config.yaml`，在浏览器登录后复制Cookie填入配置文件：
 
@@ -100,31 +99,40 @@
 cookies:
   aiqicha: 'your_cookie_here'
   tianyancha: ''
+  risk_bird: ''
   # ...
 ```
 
-**方式二：自动登录（推荐）** ⭐ 新功能
+**Cookie获取方法：**
+1. 浏览器登录对应网站
+2. F12打开开发者工具 → Network
+3. 刷新页面，找到任意请求
+4. 复制Request Headers中的Cookie值
 
-无需手动复制Cookie，程序自动登录并管理Cookie：
+**方式二：自动登录（实验性，仅风鸟）** ⚠️
+
+无需手动复制Cookie，程序自动登录并管理Cookie（**存在验证码风险**）：
 
 ```yaml
 version: 0.8
 auto_login:
   enabled: true           # 启用自动登录
-  aiqicha:
-    username: '13800138000'  # 爱企查账号（手机号）
-    password: 'your_password'  # 爱企查密码
+  riskbird:
+    username: '13800138000'  # 风鸟账号（手机号）
+    password: 'your_password'  # 风鸟密码
 cookies:
-  aiqicha: ''  # 留空，程序会自动获取
+  risk_bird: ''  # 留空，程序会自动获取
 ```
 
-> 详细说明请查看 [自动登录功能文档](docs/AUTO_LOGIN.md)
+> **限制：** 目前仅支持风鸟自动登录。爱企查、天眼查等仍需手动配置Cookie。
 
-**特性：**
-- ✅ Cookie为空时自动登录
-- ✅ Cookie失效时自动重新登录
-- ✅ 支持Docker环境（需要Chromium）
-- ✅ 完全向后兼容
+**特性与限制：**
+- ⚠️ Cookie为空时自动登录（可能遇到验证码）
+- ⚠️ 需要Chromium环境
+- ⚠️ 实验性功能，未充分测试
+- ✅ 完全向后兼容（可禁用该功能）
+
+> **建议：生产环境使用方式一（手动Cookie配置）**
 
 ### 快速使用
 

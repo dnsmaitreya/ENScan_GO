@@ -222,10 +222,10 @@ type ENConfig struct {
 	}
 	AutoLogin struct {
 		Enabled bool `yaml:"enabled"` // 是否启用自动登录
-		Aiqicha struct {
+		RiskBird struct {
 			Username string `yaml:"username"`
 			Password string `yaml:"password"`
-		} `yaml:"aiqicha"`
+		} `yaml:"riskbird"`
 	} `yaml:"auto_login"`
 	App struct {
 		MiitApi string `yaml:"miit_api"`
@@ -242,7 +242,7 @@ api:
   api: ':31000'    # API监听地址
   mcp: 'http://localhost:8080'    # MCP SSE监听地址
 cookies:
-  aiqicha: ''           # 爱企查   Cookie
+  aiqicha: ''           # 爱企查   Cookie（手动配置）
   tianyancha: ''        # 天眼查   Cookie
   tycid: ''        		# 天眼查   CApi ID(capi.tianyancha.com)
   auth_token: ''        # 天眼查   Token (capi.tianyancha.com)
@@ -251,7 +251,7 @@ cookies:
   qimai: ''             # 七麦数据 Cookie
 auto_login:
   enabled: false        # 是否启用自动登录（需要chromium支持）
-  aiqicha:
-    username: ''        # 爱企查账号（手机号）
-    password: ''        # 爱企查密码
+  riskbird:
+    username: ''        # 风鸟账号（手机号）
+    password: ''        # 风鸟密码
 `
