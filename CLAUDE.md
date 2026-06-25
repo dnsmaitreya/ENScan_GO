@@ -20,7 +20,7 @@ bash build.sh
 ```
 
 **Requirements:**
-- Go >= 1.22.1 (project uses Go 1.23.0)
+- Go >= 1.22.1 (project uses Go 1.26)
 - `xgo` for cross-platform builds: `go install github.com/karalabe/xgo@latest`
 - `upx` for binary compression (optional)
 
