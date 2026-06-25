@@ -3,8 +3,10 @@ package riskbird
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"github.com/wgpsec/ENScan/common"
 	"github.com/wgpsec/ENScan/common/gologger"
@@ -134,14 +136,20 @@ func (m *RBLoginManager) AutoLogin(username, password string) (string, error) {
 		// 等待登录完成（检查弹窗是否关闭或跳转）
 		chromedp.Sleep(5*time.Second),
 
-		// 提取Cookie
+		// 通过CDP提取Cookie（包含HttpOnly）
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			err := chromedp.Evaluate(`document.cookie`, &cookies).Do(ctx)
+			cdpCookies, err := network.GetCookies().
+				WithURLs([]string{"https://www.riskbird.com"}).
+				Do(ctx)
 			if err != nil {
 				return fmt.Errorf("获取Cookie失败: %v", err)
 			}
-
-			gologger.Debug().Msgf("【RB】获取到Cookie: %s", cookies)
+			var parts []string
+			for _, c := range cdpCookies {
+				parts = append(parts, c.Name+"="+c.Value)
+			}
+			cookies = strings.Join(parts, "; ")
+			gologger.Debug().Msgf("【RB】获取到 %d 个 Cookie", len(cdpCookies))
 			return nil
 		}),
 
