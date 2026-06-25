@@ -30,7 +30,7 @@ func (m *RBLoginManager) AutoLogin(username, password string) (string, error) {
 		return "", fmt.Errorf("风鸟账号或密码未配置")
 	}
 
-	gologger.Info().Msgf("【RB】开始自动登录，账号: %s", username)
+	gologger.Info().Msgf("【RB】开始自动登录")
 
 	// 配置chromedp选项
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
