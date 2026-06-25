@@ -9,8 +9,9 @@ import (
 )
 
 type RB struct {
-	Options *common.ENOptions
-	eid     string
+	Options          *common.ENOptions
+	eid              string
+	reLoginAttempted bool
 }
 
 func getENMap() map[string]*common.EnsGo {
@@ -164,9 +165,14 @@ func (h *RB) req(url string, data string) string {
 	} else if resp.StatusCode == 403 {
 		gologger.Error().Msgf("【RB】ip被禁止访问网站，请更换ip\n")
 	} else if resp.StatusCode == 401 || resp.StatusCode == 302 {
-		gologger.Error().Msgf("【RB】Cookie过期（HTTP %d），尝试自动重新登录\n", resp.StatusCode)
-		if h.tryAutoReLogin() {
-			return h.req(url, data)
+		if !h.reLoginAttempted {
+			gologger.Error().Msgf("【RB】Cookie过期（HTTP %d），尝试自动重新登录\n", resp.StatusCode)
+			h.reLoginAttempted = true
+			if h.tryAutoReLogin() {
+				return h.req(url, data)
+			}
+		} else {
+			gologger.Error().Msgf("【RB】自动重新登录后仍认证失败（HTTP %d），请手动更新Cookie\n", resp.StatusCode)
 		}
 	} else if resp.StatusCode == 404 {
 		gologger.Error().Msgf("【RB】请求错误 404 %s \n", url)
