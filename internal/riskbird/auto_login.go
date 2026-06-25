@@ -25,6 +25,15 @@ func NewRBLoginManager(config *common.ENConfig) *RBLoginManager {
 }
 
 // AutoLogin 自动登录风鸟
+//
+// 风鸟登录弹窗 2025 改版（xs-login-* Vue 组件）流程：
+//  1. 首页加载后登录弹窗自动弹出，默认显示「扫码登录」(二维码) 视图；
+//  2. 点击左侧橙色图片切换按钮 (img.Login-mode-img / pass-login-*) 切换到表单视图；
+//  3. 表单默认停在「验证码登录/注册」(短信验证码) 标签，需点击「密码登录」文字标签 (div.tab-item)；
+//  4. 填写手机号 input[name="uaername"] 与密码 input[name="password"]；
+//  5. 点击「登 录」按钮 button.login-form-item-btn（初始 disabled，填完后由 Vue 解禁）。
+//
+// 密码登录标签下无图形/滑块验证码。
 func (m *RBLoginManager) AutoLogin(username, password string) (string, error) {
 	if username == "" || password == "" {
 		return "", fmt.Errorf("风鸟账号或密码未配置")
@@ -56,11 +65,10 @@ func (m *RBLoginManager) AutoLogin(username, password string) (string, error) {
 
 	var cookies string
 
-	// 执行登录流程
 	err := chromedp.Run(ctx,
 		// 访问风鸟首页
 		chromedp.Navigate("https://www.riskbird.com/"),
-		chromedp.Sleep(3*time.Second),
+		chromedp.Sleep(5*time.Second),
 
 		// 注入反检测脚本
 		chromedp.Evaluate(`
@@ -70,67 +78,93 @@ func (m *RBLoginManager) AutoLogin(username, password string) (string, error) {
 			window.chrome = { runtime: {} };
 		`, nil),
 
-		// 点击登录按钮（触发弹窗）——用JS查找含"登录"文本的按钮
+		// 等待登录弹窗出现
+		chromedp.WaitVisible(`.xs-login-box`, chromedp.ByQuery),
+
+		// 切换到表单视图：点击橙色图片切换按钮（仅当当前为二维码视图时点击，避免反向切回）
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			return chromedp.Evaluate(`
+			var ok bool
+			if err := chromedp.Evaluate(`
 				(function() {
-					var el = document.querySelector('a[href*="login"]');
-					if (!el) {
-						var btns = document.querySelectorAll('button, a');
-						for (var i = 0; i < btns.length; i++) {
-							if (btns[i].textContent.trim().indexOf('登录') >= 0) {
-								el = btns[i]; break;
-							}
+					var img = document.querySelector('img.Login-mode-img');
+					if (!img) {
+						var imgs = document.querySelectorAll('img');
+						for (var i = 0; i < imgs.length; i++) {
+							if ((imgs[i].src || '').indexOf('pass-login') >= 0) { img = imgs[i]; break; }
 						}
 					}
-					if (el) { el.click(); return true; }
+					// 只有处于二维码视图(src含pass-login)时才点击切换到表单
+					if (img && (img.src || '').indexOf('pass-login') >= 0) {
+						img.click(); return true;
+					}
 					return false;
 				})()
-			`, nil).Do(ctx)
+			`, &ok).Do(ctx); err != nil {
+				return err
+			}
+			gologger.Debug().Msgf("【RB】切换到密码表单视图: %v", ok)
+			return nil
 		}),
-		chromedp.Sleep(2*time.Second),
+		chromedp.Sleep(1500*time.Millisecond),
 
-		// 等待登录弹窗出现
-		chromedp.WaitVisible(`.el-overlay-dialog`, chromedp.ByQuery),
-
-		// 切换到"密码登录"标签
+		// 切换到"密码登录"标签（文字标签 div.tab-item）
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			return chromedp.Evaluate(`
+			var ok bool
+			if err := chromedp.Evaluate(`
 				(function() {
-					var tabs = document.querySelectorAll('.tab-item, [class*="tab"]');
+					var tabs = document.querySelectorAll('.list-tabs-box .tab-item, .tab-item');
 					for (var i = 0; i < tabs.length; i++) {
-						if (tabs[i].textContent.trim().indexOf('密码登录') >= 0) {
+						if (tabs[i].textContent.replace(/\s+/g, '') === '密码登录') {
 							tabs[i].click(); return true;
 						}
 					}
 					return false;
 				})()
-			`, nil).Do(ctx)
+			`, &ok).Do(ctx); err != nil {
+				return err
+			}
+			gologger.Debug().Msgf("【RB】切换到密码登录标签: %v", ok)
+			return nil
 		}),
-		chromedp.Sleep(500*time.Millisecond),
+		chromedp.Sleep(1200*time.Millisecond),
 
-		// 输入手机号（name="uaername"，注意是拼写错误）
-		chromedp.SendKeys(`input[name="uaername"]`, username, chromedp.ByQuery),
+		// 等待密码输入框出现
+		chromedp.WaitVisible(`.login-form input[name="password"]`, chromedp.ByQuery),
+
+		// 输入手机号（name="uaername"，站点原始拼写如此）
+		chromedp.SendKeys(`.login-form input[name="uaername"]`, username, chromedp.ByQuery),
 		chromedp.Sleep(500*time.Millisecond),
 
 		// 输入密码
-		chromedp.SendKeys(`input[name="password"]`, password, chromedp.ByQuery),
-		chromedp.Sleep(500*time.Millisecond),
+		chromedp.SendKeys(`.login-form input[name="password"]`, password, chromedp.ByQuery),
+		chromedp.Sleep(800*time.Millisecond),
 
-		// 点击"登 录"按钮
+		// 点击"登 录"按钮（填完后由 Vue 解除 disabled，轮询等待解禁后点击）
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			return chromedp.Evaluate(`
-				(function() {
-					var btns = document.querySelectorAll('button.el-button--primary, button[type="submit"]');
-					for (var i = 0; i < btns.length; i++) {
-						var txt = btns[i].textContent.replace(/\s+/g, '');
-						if (txt.indexOf('登录') >= 0) {
-							btns[i].click(); return true;
+			for i := 0; i < 20; i++ {
+				var clicked bool
+				if err := chromedp.Evaluate(`
+					(function() {
+						var btn = document.querySelector('button.login-form-item-btn');
+						if (!btn) {
+							var btns = document.querySelectorAll('button.el-button--primary');
+							for (var i = 0; i < btns.length; i++) {
+								if (btns[i].textContent.replace(/\s+/g, '').indexOf('登录') >= 0) { btn = btns[i]; break; }
+							}
 						}
-					}
-					return false;
-				})()
-			`, nil).Do(ctx)
+						if (btn && !btn.disabled) { btn.click(); return true; }
+						return false;
+					})()
+				`, &clicked).Do(ctx); err != nil {
+					return err
+				}
+				if clicked {
+					gologger.Debug().Msgf("【RB】已点击登录按钮")
+					return nil
+				}
+				time.Sleep(300 * time.Millisecond)
+			}
+			return fmt.Errorf("登录按钮始终为禁用状态（手机号/密码可能未正确填入）")
 		}),
 
 		// 等待登录完成（检查弹窗是否关闭或跳转）
@@ -153,24 +187,23 @@ func (m *RBLoginManager) AutoLogin(username, password string) (string, error) {
 			return nil
 		}),
 
-		// 验证登录是否成功（检查是否有登录后的元素）
+		// 验证登录是否成功（弹窗关闭 / 无错误提示）
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			var loginSuccess bool
 			err := chromedp.Evaluate(`
-				// 检查是否有登录错误提示
-				const errorMsg = document.querySelector('.el-message--error, .login-error');
-				if (errorMsg) {
-					return false;
-				}
-
-				// 检查弹窗是否还在（登录失败通常弹窗还在）
-				const dialog = document.querySelector('.el-overlay-dialog');
-				if (dialog && dialog.offsetWidth > 0) {
-					return false;
-				}
-
-				// 登录成功，弹窗应该消失
-				return true;
+				(function() {
+					// 检查是否有登录错误提示
+					const errorMsg = document.querySelector('.el-message--error, .login-error');
+					if (errorMsg && errorMsg.offsetWidth > 0) {
+						return false;
+					}
+					// 登录弹窗消失视为成功
+					const box = document.querySelector('.xs-login-box');
+					if (box && box.offsetWidth > 0) {
+						return false;
+					}
+					return true;
+				})()
 			`, &loginSuccess).Do(ctx)
 
 			if err != nil {
