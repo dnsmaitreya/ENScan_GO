@@ -68,15 +68,43 @@ func (m *RBLoginManager) AutoLogin(username, password string) (string, error) {
 			window.chrome = { runtime: {} };
 		`, nil),
 
-		// 点击登录按钮（触发弹窗）
-		chromedp.Click(`a[href*="login"], button:contains("登录")`, chromedp.ByQuery),
+		// 点击登录按钮（触发弹窗）——用JS查找含"登录"文本的按钮
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return chromedp.Evaluate(`
+				(function() {
+					var el = document.querySelector('a[href*="login"]');
+					if (!el) {
+						var btns = document.querySelectorAll('button, a');
+						for (var i = 0; i < btns.length; i++) {
+							if (btns[i].textContent.trim().indexOf('登录') >= 0) {
+								el = btns[i]; break;
+							}
+						}
+					}
+					if (el) { el.click(); return true; }
+					return false;
+				})()
+			`, nil).Do(ctx)
+		}),
 		chromedp.Sleep(2*time.Second),
 
 		// 等待登录弹窗出现
 		chromedp.WaitVisible(`.el-overlay-dialog`, chromedp.ByQuery),
 
-		// 切换到"密码登录"标签（如果不是默认的话）
-		chromedp.Click(`.tab-item:contains("密码登录")`, chromedp.ByQuery),
+		// 切换到"密码登录"标签
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return chromedp.Evaluate(`
+				(function() {
+					var tabs = document.querySelectorAll('.tab-item, [class*="tab"]');
+					for (var i = 0; i < tabs.length; i++) {
+						if (tabs[i].textContent.trim().indexOf('密码登录') >= 0) {
+							tabs[i].click(); return true;
+						}
+					}
+					return false;
+				})()
+			`, nil).Do(ctx)
+		}),
 		chromedp.Sleep(500*time.Millisecond),
 
 		// 输入手机号（name="uaername"，注意是拼写错误）
@@ -88,7 +116,20 @@ func (m *RBLoginManager) AutoLogin(username, password string) (string, error) {
 		chromedp.Sleep(500*time.Millisecond),
 
 		// 点击"登 录"按钮
-		chromedp.Click(`button.el-button--primary:contains("登 录")`, chromedp.ByQuery),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return chromedp.Evaluate(`
+				(function() {
+					var btns = document.querySelectorAll('button.el-button--primary, button[type="submit"]');
+					for (var i = 0; i < btns.length; i++) {
+						var txt = btns[i].textContent.replace(/\s+/g, '');
+						if (txt.indexOf('登录') >= 0) {
+							btns[i].click(); return true;
+						}
+					}
+					return false;
+				})()
+			`, nil).Do(ctx)
+		}),
 
 		// 等待登录完成（检查弹窗是否关闭或跳转）
 		chromedp.Sleep(5*time.Second),
