@@ -224,7 +224,7 @@ type ENConfig struct {
 		Enabled bool `yaml:"enabled"` // 是否启用自动登录
 		RiskBird struct {
 			Username string `yaml:"username"`
-			Password string `yaml:"password"`
+			Password string `yaml:"password"` // 安全建议: 优先使用环境变量 RB_PASSWORD 代替明文
 		} `yaml:"riskbird"`
 	} `yaml:"auto_login"`
 	App struct {
