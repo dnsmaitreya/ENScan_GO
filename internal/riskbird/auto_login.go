@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 	"github.com/wgpsec/ENScan/common"
 	"github.com/wgpsec/ENScan/common/gologger"
@@ -66,24 +67,28 @@ func (m *RBLoginManager) AutoLogin(username, password string) (string, error) {
 	var cookies string
 
 	err := chromedp.Run(ctx,
+		// 注入反检测脚本——必须在导航前通过 CDP 注册，使其在每个新文档脚本执行前生效，
+		// 否则页面自带的 bot 检测脚本会先于注入运行而失效。
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, err := page.AddScriptToEvaluateOnNewDocument(`
+				Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+				Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+				Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
+				window.chrome = { runtime: {} };
+			`).Do(ctx)
+			return err
+		}),
+
 		// 访问风鸟首页
 		chromedp.Navigate("https://www.riskbird.com/"),
 		chromedp.Sleep(5*time.Second),
-
-		// 注入反检测脚本
-		chromedp.Evaluate(`
-			Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-			Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-			Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
-			window.chrome = { runtime: {} };
-		`, nil),
 
 		// 等待登录弹窗出现
 		chromedp.WaitVisible(`.xs-login-box`, chromedp.ByQuery),
 
 		// 切换到表单视图：点击橙色图片切换按钮（仅当当前为二维码视图时点击，避免反向切回）
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			var ok bool
+			var ok string
 			if err := chromedp.Evaluate(`
 				(function() {
 					var img = document.querySelector('img.Login-mode-img');
@@ -93,16 +98,18 @@ func (m *RBLoginManager) AutoLogin(username, password string) (string, error) {
 							if ((imgs[i].src || '').indexOf('pass-login') >= 0) { img = imgs[i]; break; }
 						}
 					}
-					// 只有处于二维码视图(src含pass-login)时才点击切换到表单
-					if (img && (img.src || '').indexOf('pass-login') >= 0) {
-						img.click(); return true;
-					}
-					return false;
+					// status: clicked=已点击切换 / already-form=已是表单视图 / not-found=找不到切换控件
+					if (!img) return 'not-found';
+					if ((img.src || '').indexOf('pass-login') >= 0) { img.click(); return 'clicked'; }
+					return 'already-form';
 				})()
 			`, &ok).Do(ctx); err != nil {
 				return err
 			}
-			gologger.Debug().Msgf("【RB】切换到密码表单视图: %v", ok)
+			gologger.Debug().Msgf("【RB】切换到密码表单视图: %s", ok)
+			if ok == "not-found" {
+				return fmt.Errorf("未找到登录方式切换控件(img.Login-mode-img)，风鸟登录页结构可能再次变化")
+			}
 			return nil
 		}),
 		chromedp.Sleep(1500*time.Millisecond),
@@ -124,6 +131,9 @@ func (m *RBLoginManager) AutoLogin(username, password string) (string, error) {
 				return err
 			}
 			gologger.Debug().Msgf("【RB】切换到密码登录标签: %v", ok)
+			if !ok {
+				return fmt.Errorf("未找到「密码登录」标签，可能仍停留在二维码视图或页面结构变化")
+			}
 			return nil
 		}),
 		chromedp.Sleep(1200*time.Millisecond),
@@ -162,7 +172,12 @@ func (m *RBLoginManager) AutoLogin(username, password string) (string, error) {
 					gologger.Debug().Msgf("【RB】已点击登录按钮")
 					return nil
 				}
-				time.Sleep(300 * time.Millisecond)
+				// 等待时尊重 context 取消（超时立即返回，不再空等 300ms）
+				select {
+				case <-time.After(300 * time.Millisecond):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
 			return fmt.Errorf("登录按钮始终为禁用状态（手机号/密码可能未正确填入）")
 		}),
