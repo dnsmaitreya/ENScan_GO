@@ -78,12 +78,26 @@ func getENMap() map[string]*common.EnsGo {
 			Field:   []string{"brName", "brPrincipal", "entStatus", "entid"},
 			KeyWord: []string{"企业名称", "法人", "状态", "PID"},
 		},
+		"holds": {
+			Name:    "控股企业",
+			Api:     "companyControl",
+			GNum:    "companyControlCount",
+			Field:   []string{"entName", "personName", "entStatus", "controlRatio", "controlLevel", "entid"},
+			KeyWord: []string{"企业名称", "法人", "状态", "投资比例", "持股层级", "PID"},
+		},
 		"partner": {
 			Name:    "股东信息",
 			Api:     "shareHolder",
 			GNum:    "shareHolderCount",
 			Field:   []string{"shaName", "fundedRatio", "subConAm", "shaId"},
 			KeyWord: []string{"股东名称", "持股比例", "认缴出资金额", "PID"},
+		},
+		"supplier": {
+			Name:    "供应商",
+			Api:     "companySupplier",
+			GNum:    "companySupplierCount",
+			Field:   []string{"entName", "", "", "publishDate", "source", "", "entid"},
+			KeyWord: []string{"名称", "金额占比", "金额", "报告期/公开时间", "数据来源", "关联关系", "PID"},
 		},
 	}
 
@@ -92,6 +106,25 @@ func getENMap() map[string]*common.EnsGo {
 		ensInfoMap[k].Field = append(ensInfoMap[k].Field, "ref")
 	}
 	return ensInfoMap
+}
+
+// tryAutoReLogin 尝试使用自动登录重新获取Cookie
+func (h *RB) tryAutoReLogin() bool {
+	cfg := h.Options.ENConfig
+	if cfg == nil || !cfg.AutoLogin.Enabled {
+		gologger.Error().Msgf("【RB】自动登录未启用，请手动更新Cookie\n")
+		return false
+	}
+	gologger.Info().Msgf("【RB】正在自动重新登录...\n")
+	loginMgr := NewRBLoginManager(cfg)
+	cookie, err := loginMgr.AutoLogin(cfg.AutoLogin.RiskBird.Username, cfg.AutoLogin.RiskBird.Password)
+	if err != nil {
+		gologger.Error().Msgf("【RB】自动重新登录失败: %v\n", err)
+		return false
+	}
+	cfg.Cookies.RiskBird = cookie
+	gologger.Info().Msgf("【RB】自动重新登录成功，Cookie已更新\n")
+	return true
 }
 
 func (h *RB) req(url string, data string) string {
@@ -130,10 +163,11 @@ func (h *RB) req(url string, data string) string {
 		return resp.String()
 	} else if resp.StatusCode == 403 {
 		gologger.Error().Msgf("【RB】ip被禁止访问网站，请更换ip\n")
-	} else if resp.StatusCode == 401 {
-		gologger.Error().Msgf("【RB】Cookie有问题或过期，请重新获取\n")
-	} else if resp.StatusCode == 302 {
-		gologger.Error().Msgf("【RB】需要更新Cookie\n")
+	} else if resp.StatusCode == 401 || resp.StatusCode == 302 {
+		gologger.Error().Msgf("【RB】Cookie过期（HTTP %d），尝试自动重新登录\n", resp.StatusCode)
+		if h.tryAutoReLogin() {
+			return h.req(url, data)
+		}
 	} else if resp.StatusCode == 404 {
 		gologger.Error().Msgf("【RB】请求错误 404 %s \n", url)
 	} else {
