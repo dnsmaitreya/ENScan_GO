@@ -253,6 +253,24 @@ func (q *ESJob) getENJob(tpy string) (enJob *EnJob) {
 }
 
 func NewENTaskQueue(capacity int, op *common.ENOptions) *ESJob {
+	// 风鸟自动登录：如果启用了 auto_login 且 RB cookie 为空，尝试自动获取
+	// 启动时仅检查 cookie 为空（不检查过期），过期场景由 bean.go tryAutoReLogin 处理
+	if op.ENConfig != nil && op.ENConfig.AutoLogin.Enabled && op.ENConfig.Cookies.RiskBird == "" {
+		rbLogin := riskbird.NewRBLoginManager(op.ENConfig)
+		rbUser := op.ENConfig.AutoLogin.RiskBird.Username
+		rbPass := op.ENConfig.AutoLogin.RiskBird.Password
+		if envPass := os.Getenv("RB_PASSWORD"); envPass != "" {
+			rbPass = envPass
+		}
+		cookie, err := rbLogin.AutoLogin(rbUser, rbPass)
+		if err != nil {
+			gologger.Error().Msgf("【RB】自动登录失败，将使用手动Cookie模式: %v", err)
+		} else {
+			op.ENConfig.Cookies.RiskBird = cookie
+			gologger.Info().Msgf("【RB】自动登录成功，Cookie已更新")
+		}
+	}
+
 	jobs := map[string]_interface.ENScan{
 		"aqc":    &aiqicha.AQC{Options: op},
 		"tyc":    &tianyancha.TYC{Options: op},

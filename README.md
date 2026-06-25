@@ -70,7 +70,12 @@
     - 正则过滤公司
     - 支持深度查询 收集多层孙公司
     - 支持API模式提供工具联动
+    - ⭐ **风鸟自动登录** - 无需手动复制Cookie，自动管理登录状态（实验性）
 
+## 📚 文档导航
+
+- [使用指南](#使用指南) - 快速上手
+- [设计变更文档](docs/DESIGN_CHANGES.md) - 技术设计和架构说明
 
 ## 使用指南
 
@@ -80,9 +85,54 @@
 
 首次使用时需要使用 -v 命令生成配置文件并配置Cookie
 
-```
+```bash
 ./enscan -v
 ```
+
+#### 配置方式
+
+**方式一：手动配置Cookie（推荐）**
+
+编辑 `~/.claude/config.yaml`，在浏览器登录后复制Cookie填入配置文件：
+
+```yaml
+cookies:
+  aiqicha: 'your_cookie_here'
+  tianyancha: ''
+  risk_bird: ''
+  # ...
+```
+
+**Cookie获取方法：**
+1. 浏览器登录对应网站
+2. F12打开开发者工具 → Network
+3. 刷新页面，找到任意请求
+4. 复制Request Headers中的Cookie值
+
+**方式二：自动登录（实验性，仅风鸟）** ⚠️
+
+无需手动复制Cookie，程序自动登录并管理Cookie（**存在验证码风险**）：
+
+```yaml
+version: 0.8
+auto_login:
+  enabled: true           # 启用自动登录
+  riskbird:
+    username: '13800138000'  # 风鸟账号（手机号）
+    password: 'your_password'  # 风鸟密码
+cookies:
+  risk_bird: ''  # 留空，程序会自动获取
+```
+
+> **限制：** 目前仅支持风鸟自动登录。爱企查、天眼查等仍需手动配置Cookie。
+
+**特性与限制：**
+- ⚠️ Cookie为空时自动登录（可能遇到验证码）
+- ⚠️ 需要Chromium环境
+- ⚠️ 实验性功能，未充分测试
+- ✅ 完全向后兼容（可禁用该功能）
+
+> **建议：生产环境使用方式一（手动Cookie配置）**
 
 ### 快速使用
 
